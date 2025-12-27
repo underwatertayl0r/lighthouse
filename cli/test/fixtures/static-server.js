@@ -96,9 +96,10 @@ class Server {
   _requestHandler(request, response) {
     const requestUrl = parseURL(request.url);
     this._updateRequestUrls(request);
-    const filePath = requestUrl.pathname;
+    let filePath = requestUrl.pathname;
     const queryString = requestUrl.search && parseQueryString(requestUrl.search.slice(1));
-    let absoluteFilePath = path.join(this.baseDir, filePath);
+    /** @type {string} */
+    let absoluteFilePath;
     const sendResponse = (statusCode, data) => {
       // Used by Smokerider.
       if (this._dataTransformer) data = this._dataTransformer(data);
@@ -204,12 +205,23 @@ class Server {
 
     if (filePath.startsWith('/dist/gh-pages')) {
       // Rewrite viewer paths to point to that location.
-      absoluteFilePath = path.join(this.baseDir, '/../../../', filePath);
+      filePath = path.join('/../../../', filePath);
     }
 
-    // Disallow file requests outside of LH folder
-    const filePathDir = path.parse(absoluteFilePath).dir;
-    if (!filePathDir.startsWith(LH_ROOT)) {
+    try {
+      // Resolve the requested path relative to the base directory and normalize it.
+      const resolvedPath = path.resolve(this.baseDir, '.' + filePath);
+      const realPath = fs.realpathSync(resolvedPath);
+
+      // Disallow file requests outside of LH folder or the configured base directory.
+      const lhRootWithSep = LH_ROOT.endsWith(path.sep) ? LH_ROOT : LH_ROOT + path.sep;
+      const baseDirWithSep = this.baseDir.endsWith(path.sep) ? this.baseDir : this.baseDir + path.sep;
+      if (!realPath.startsWith(lhRootWithSep) || !realPath.startsWith(baseDirWithSep)) {
+        return readFileCallback(new Error('Disallowed path'));
+      }
+
+      absoluteFilePath = realPath;
+    } catch (e) {
       return readFileCallback(new Error('Disallowed path'));
     }
 
